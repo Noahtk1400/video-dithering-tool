@@ -15,7 +15,18 @@ export default function Home() {
   const [contrast, setContrast] = useState(0)
   const [threshold, setThreshold] = useState(0)
   const [processing, setProcessing] = useState(false)
-  const [previewScale, setPreviewScale] = useState(2.5) // NEW: Preview zoom control
+  const [previewScale, setPreviewScale] = useState(1)
+
+  /*
+    BUG FIX (Bug 4 + 5): We need the processed image's native pixel dimensions
+    to correctly size the zoomed canvas in layout space.
+
+    Why not just read ditheredCanvasRef.current.width in JSX?
+    Because React doesn't re-render when a ref's properties change — only
+    state changes trigger re-renders. Storing dimensions in state ensures
+    the canvas display updates correctly after processImage() runs.
+  */
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null)
 
   // Bloom effect controls
   const [bloomEnabled, setBloomEnabled] = useState(false)
@@ -27,7 +38,6 @@ export default function Home() {
   const ditheredCanvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Video processing hook
   const {
     uploadVideo,
     videoMetadata,
@@ -50,18 +60,11 @@ export default function Home() {
       img.onload = () => {
         const canvas = originalCanvasRef.current
         if (!canvas) return
-
-        // Set canvas size to image size
         canvas.width = img.width
         canvas.height = img.height
-
         const ctx = canvas.getContext('2d')
         if (!ctx) return
-
-        // Draw original image
         ctx.drawImage(img, 0, 0)
-
-        // Auto-process on load
         processImage()
       }
       img.src = event.target?.result as string
@@ -75,14 +78,10 @@ export default function Home() {
     if (!originalCanvas || !ditheredCanvas) return
 
     setProcessing(true)
-
-    // Get original image data
     const ctx = originalCanvas.getContext('2d')
     if (!ctx) return
 
     const imageData = ctx.getImageData(0, 0, originalCanvas.width, originalCanvas.height)
-
-    // Apply Floyd-Steinberg dithering
     const palette = PRESET_PALETTES[selectedPalette as keyof typeof PRESET_PALETTES]
 
     const dithering = new FloydSteinbergDithering({
@@ -103,13 +102,19 @@ export default function Home() {
     const processedImageData = dithering.dither(imageData)
     dithering.dispose()
 
-    // Draw dithered image
     ditheredCanvas.width = originalCanvas.width
     ditheredCanvas.height = originalCanvas.height
     const ditheredCtx = ditheredCanvas.getContext('2d')
     if (!ditheredCtx) return
-
     ditheredCtx.putImageData(processedImageData, 0, 0)
+
+    /*
+      BUG FIX (Bug 5): Store the processed canvas dimensions in React state.
+      These are the native pixel dimensions of the dithered image. We use them
+      in JSX to compute the CSS width/height of the canvas at higher zoom levels,
+      so the scroll container sees the correct layout size and shows scrollbars.
+    */
+    setCanvasSize({ width: ditheredCanvas.width, height: ditheredCanvas.height })
 
     setProcessing(false)
   }, [selectedPalette, pixelation, brightness, contrast, threshold, bloomEnabled, bloomIntensity, bloomRadius, bloomThreshold])
@@ -117,11 +122,10 @@ export default function Home() {
   const handleVideoUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-
     await uploadVideo(file)
   }, [uploadVideo])
 
-  // Sync video parameters with image parameters
+  // Keep video parameters in sync with the shared image parameter controls
   useEffect(() => {
     if (mode === 'video') {
       updateVideoParams({
@@ -140,80 +144,117 @@ export default function Home() {
   }, [mode, selectedPalette, pixelation, brightness, contrast, threshold, bloomEnabled, bloomIntensity, bloomRadius, bloomThreshold, updateVideoParams])
 
   return (
-    <main className="min-h-screen p-8">
+    /*
+      text-[#f0f0f0]: sets default text color for the entire page subtree.
+      The body rule in globals.css also sets color: #f0f0f0, so this is
+      belt-and-suspenders — it prevents any Tailwind Preflight reset from
+      overriding inside this subtree.
+    */
+    <main className="min-h-screen p-8 text-[#f0f0f0]">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-4xl font-bold mb-8">Floyd-Steinberg Video Dithering Tool</h1>
 
-        {/* Mode Toggle */}
+        {/* ── PAGE TITLE ─────────────────────────────────────────────
+            letter-spacing: -0.04em is applied globally to h1 via
+            globals.css. No extra class needed here.
+        */}
+        <h1 className="text-4xl font-bold mb-8">
+          Floyd-Steinberg Video Dithering Tool
+        </h1>
+
+        {/* ── MODE TOGGLE ────────────────────────────────────────────
+            Active button:
+              - bg-[#55FF00]: accent green background
+              - text-black: black text for contrast (WCAG AA compliant
+                on #55FF00 — bright green passes with dark text)
+              - glow-green: hover glow from globals.css
+
+            Inactive button:
+              - bg-[#1c1c1c]: same as card surface (buttons sit inside card)
+              - border border-[#212121]: hairline border distinguishes it
+              - text-[#888]: muted gray, clearly inactive
+              - No glow-green: only the currently active state glows
+
+            rounded-[8px]: per spec, 8px for smaller UI elements.
+        */}
         <div className="mb-6 flex gap-4">
           <button
             onClick={() => setMode('image')}
-            className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+            className={`px-6 py-3 rounded-[8px] font-medium transition-colors ${
               mode === 'image'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                ? 'bg-[#55FF00] text-black font-semibold glow-green'
+                : 'bg-[#1c1c1c] text-[#888] border border-[#212121] hover:border-[#333]'
             }`}
           >
             Image Mode
           </button>
           <button
             onClick={() => setMode('video')}
-            className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+            className={`px-6 py-3 rounded-[8px] font-medium transition-colors ${
               mode === 'video'
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                ? 'bg-[#55FF00] text-black font-semibold glow-green'
+                : 'bg-[#1c1c1c] text-[#888] border border-[#212121] hover:border-[#333]'
             }`}
           >
             Video Mode
           </button>
         </div>
 
+        {/* Responsive grid: 1 column on mobile, 2 on large screens */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column: Upload & Controls */}
+
+          {/* LEFT COLUMN: Upload + Controls */}
           <div className="space-y-6">
-            {/* Upload */}
+
+            {/* ── UPLOAD CARD ──────────────────────────────────────
+                glass-card: dark frosted glass (see globals.css).
+                File input is styled globally in globals.css — no
+                extra className needed on the input element itself.
+            */}
             {mode === 'image' ? (
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-2xl font-semibold mb-4">Upload Image (Test)</h2>
+              <div className="glass-card p-6">
+                <h2 className="text-2xl font-semibold mb-4">Upload Image</h2>
                 <input
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
                   onChange={handleImageUpload}
-                  className="w-full p-2 border rounded"
                 />
               </div>
             ) : (
-              <div className="bg-white rounded-lg shadow-md p-6">
+              <div className="glass-card p-6">
                 <h2 className="text-2xl font-semibold mb-4">Upload Video</h2>
                 <input
                   type="file"
                   accept="video/*"
                   onChange={handleVideoUpload}
-                  className="w-full p-2 border rounded"
                 />
+                {/* Video metadata — dark inset panel with 8px radius */}
                 {videoMetadata && (
-                  <div className="mt-4 p-4 bg-gray-50 rounded space-y-1 text-sm">
-                    <p><strong>Resolution:</strong> {videoMetadata.width}x{videoMetadata.height}</p>
-                    <p><strong>FPS:</strong> {videoMetadata.fps.toFixed(2)}</p>
-                    <p><strong>Duration:</strong> {videoMetadata.duration.toFixed(2)}s</p>
-                    <p><strong>Total Frames:</strong> {videoMetadata.totalFrames}</p>
+                  <div className="mt-4 p-4 bg-[#111] rounded-[8px] border border-[#212121] space-y-1 text-sm">
+                    <p className="text-[#999]"><strong className="text-[#ccc]">Resolution:</strong> {videoMetadata.width}x{videoMetadata.height}</p>
+                    <p className="text-[#999]"><strong className="text-[#ccc]">FPS:</strong> {videoMetadata.fps.toFixed(2)}</p>
+                    <p className="text-[#999]"><strong className="text-[#ccc]">Duration:</strong> {videoMetadata.duration.toFixed(2)}s</p>
+                    <p className="text-[#999]"><strong className="text-[#ccc]">Total Frames:</strong> {videoMetadata.totalFrames}</p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Parameters */}
-            <div className="bg-white rounded-lg shadow-md p-6 space-y-4">
+            {/* ── PARAMETERS CARD ──────────────────────────────────
+                All sliders are tinted green via globals.css accent-color.
+                The select dropdown is styled dark via globals.css.
+                Labels use text-[#ccc] — readable but not glaring.
+            */}
+            <div className="glass-card p-6 space-y-4">
               <h2 className="text-2xl font-semibold mb-4">Parameters</h2>
 
-              {/* Palette */}
+              {/* Palette dropdown — dark styled via globals.css select rule */}
               <div>
-                <label className="block text-sm font-medium mb-2">Color Palette</label>
+                <label className="block text-sm font-medium mb-2 text-[#ccc]">Color Palette</label>
                 <select
                   value={selectedPalette}
                   onChange={(e) => setSelectedPalette(e.target.value)}
-                  className="w-full p-2 border rounded"
+                  className="w-full"
                 >
                   {Object.keys(PRESET_PALETTES).map(preset => (
                     <option key={preset} value={preset}>
@@ -223,9 +264,9 @@ export default function Home() {
                 </select>
               </div>
 
-              {/* Pixelation */}
+              {/* Pixelation — range fills green via globals.css accent-color */}
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="block text-sm font-medium mb-2 text-[#ccc]">
                   Pixelation: {pixelation}
                 </label>
                 <input
@@ -238,9 +279,8 @@ export default function Home() {
                 />
               </div>
 
-              {/* Brightness */}
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="block text-sm font-medium mb-2 text-[#ccc]">
                   Brightness: {brightness}
                 </label>
                 <input
@@ -253,9 +293,8 @@ export default function Home() {
                 />
               </div>
 
-              {/* Contrast */}
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="block text-sm font-medium mb-2 text-[#ccc]">
                   Contrast: {contrast}
                 </label>
                 <input
@@ -268,9 +307,8 @@ export default function Home() {
                 />
               </div>
 
-              {/* Threshold */}
               <div>
-                <label className="block text-sm font-medium mb-2">
+                <label className="block text-sm font-medium mb-2 text-[#ccc]">
                   Threshold: {threshold}
                 </label>
                 <input
@@ -283,10 +321,17 @@ export default function Home() {
                 />
               </div>
 
-              {/* Preview Zoom */}
-              <div className="border-t pt-4 mt-4">
-                <label className="block text-sm font-medium mb-2">
-                  Preview Zoom: {previewScale}x
+              {/* ── PREVIEW ZOOM SLIDER ─────────────────────────────
+                  At previewScale = 1: canvas is fit-to-container (shows
+                  the full image, no scrolling needed).
+                  At previewScale > 1: canvas is rendered at
+                  nativeWidth * scale, enabling scroll-to-pan.
+
+                  This border-t visually separates zoom from dithering params.
+              */}
+              <div className="border-t border-[#212121] pt-4 mt-4">
+                <label className="block text-sm font-medium mb-2 text-[#ccc]">
+                  Preview Zoom: {previewScale === 1 ? 'Full View' : `${previewScale}x`}
                 </label>
                 <input
                   type="range"
@@ -297,13 +342,20 @@ export default function Home() {
                   onChange={(e) => setPreviewScale(Number(e.target.value))}
                   className="w-full"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Enlarge dithered preview to see pixelation detail
+                <p className="text-xs text-[#555] mt-1">
+                  {previewScale === 1
+                    ? 'Showing full image — drag slider to zoom in'
+                    : 'Scroll inside the preview to pan around'}
                 </p>
               </div>
 
-              {/* Bloom Effect */}
-              <div className="border-t pt-4 mt-4 space-y-4">
+              {/* ── BLOOM EFFECT ────────────────────────────────────
+                  border-l-2 border-[#55FF00]/30: 30% opacity accent green
+                  left border — visually groups the bloom sub-controls
+                  without being visually loud.
+                  Syntax: border-[#55FF00]/30 = rgb(85 255 0 / 0.3)
+              */}
+              <div className="border-t border-[#212121] pt-4 mt-4 space-y-4">
                 <h3 className="text-lg font-semibold">Bloom Effect</h3>
 
                 <label className="flex items-center gap-2 cursor-pointer">
@@ -313,14 +365,13 @@ export default function Home() {
                     onChange={(e) => setBloomEnabled(e.target.checked)}
                     className="w-4 h-4"
                   />
-                  <span className="text-sm font-medium">Enable Bloom</span>
+                  <span className="text-sm font-medium text-[#ccc]">Enable Bloom</span>
                 </label>
 
                 {bloomEnabled && (
-                  <div className="space-y-4 pl-6 border-l-2 border-blue-200">
-                    {/* Intensity */}
+                  <div className="space-y-4 pl-6 border-l-2 border-[#55FF00]/30">
                     <div>
-                      <label className="block text-sm font-medium mb-2">
+                      <label className="block text-sm font-medium mb-2 text-[#ccc]">
                         Intensity: {bloomIntensity.toFixed(2)}
                       </label>
                       <input
@@ -332,12 +383,11 @@ export default function Home() {
                         onChange={(e) => setBloomIntensity(Number(e.target.value))}
                         className="w-full"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Glow strength</p>
+                      <p className="text-xs text-[#555] mt-1">Glow strength</p>
                     </div>
 
-                    {/* Radius */}
                     <div>
-                      <label className="block text-sm font-medium mb-2">
+                      <label className="block text-sm font-medium mb-2 text-[#ccc]">
                         Radius: {bloomRadius}px
                       </label>
                       <input
@@ -349,12 +399,11 @@ export default function Home() {
                         onChange={(e) => setBloomRadius(Number(e.target.value))}
                         className="w-full"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Blur spread</p>
+                      <p className="text-xs text-[#555] mt-1">Blur spread</p>
                     </div>
 
-                    {/* Threshold */}
                     <div>
-                      <label className="block text-sm font-medium mb-2">
+                      <label className="block text-sm font-medium mb-2 text-[#ccc]">
                         Threshold: {bloomThreshold.toFixed(2)}
                       </label>
                       <input
@@ -366,16 +415,26 @@ export default function Home() {
                         onChange={(e) => setBloomThreshold(Number(e.target.value))}
                         className="w-full"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Brightness cutoff</p>
+                      <p className="text-xs text-[#555] mt-1">Brightness cutoff</p>
                     </div>
                   </div>
                 )}
               </div>
 
+              {/* ── PRIMARY ACTION BUTTON ────────────────────────────
+                  bg-[#55FF00] text-black: bright green with black text.
+                  hover:brightness-110: lightens the green 10% on hover
+                  using CSS filter — no color value recalculation needed.
+                  disabled:opacity-30: fades to 30% when not available.
+                  disabled:cursor-not-allowed: signals non-interactability.
+                  glow-green: adds the box-shadow halo on hover.
+                    Note: this button is NOT inside overflow-hidden, so
+                    the glow renders fully visible (unlike progress bar fill).
+              */}
               <button
                 onClick={mode === 'image' ? processImage : startProcessing}
                 disabled={processing || (mode === 'video' && (!videoMetadata || processingState.isProcessing))}
-                className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+                className="w-full px-6 py-3 bg-[#55FF00] text-black font-semibold rounded-[8px] hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed glow-green"
               >
                 {mode === 'image'
                   ? (processing ? 'Processing...' : 'Apply Dithering')
@@ -384,36 +443,94 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Preview / Video Processing */}
+          {/* RIGHT COLUMN: Preview / Video output */}
           <div className="space-y-6">
             {mode === 'image' ? (
               <>
-                <div className="bg-white rounded-lg shadow-md p-6">
+                {/* ── ORIGINAL CANVAS ──────────────────────────────
+                    w-full: canvas display width fills the card.
+                    The canvas internal resolution is set to the image's
+                    native size; CSS w-full scales the display to fit.
+                    imageRendering: pixelated: keeps pixels sharp when
+                    the display size doesn't match internal resolution.
+                */}
+                <div className="glass-card p-6">
                   <h2 className="text-2xl font-semibold mb-4">Original</h2>
                   <canvas
                     ref={originalCanvasRef}
-                    className="w-full border rounded"
+                    className="w-full border border-[#212121] rounded-[8px]"
                     style={{ imageRendering: 'pixelated' }}
                   />
                 </div>
 
-                <div className="bg-white rounded-lg shadow-md p-6">
+                {/* ── DITHERED CANVAS (ZOOMABLE + PANNABLE) ────────
+                    BUG FIX (Bug 4): Old code used transform: scale() which
+                    is visual-only — it doesn't change layout size. The
+                    overflow-auto container never showed scrollbars because
+                    it still saw the original (unscaled) canvas dimensions.
+
+                    New approach: set CSS width/height directly on the canvas.
+                    For a <canvas> element:
+                      - canvas.width / canvas.height attributes = drawing buffer
+                        (the internal pixel grid, set to the image's native size)
+                      - CSS width / CSS height = display size on screen
+                    These are independent. Setting CSS width = nativeWidth * scale
+                    makes the canvas visually larger while keeping pixel data intact.
+                    The overflow-auto container sees the real layout dimensions and
+                    shows scrollbars correctly → scroll-to-pan works.
+
+                    At previewScale = 1 (fit mode):
+                      CSS width: 100% → scales down to fit the card (shows full image)
+                      CSS height: auto → maintains aspect ratio naturally
+                      No scrollbars needed.
+
+                    At previewScale > 1 (zoom mode):
+                      CSS width: canvasSize.width * previewScale
+                      CSS height: canvasSize.height * previewScale
+                      Container overflow:auto → scrollbars appear → scroll to pan.
+
+                    maxHeight at zoom mode: caps the scroll region so the UI
+                    doesn't take over the whole screen. At fit mode (scale=1):
+                    no maxHeight, so the full image is always visible.
+                */}
+                <div className="glass-card p-6">
                   <h2 className="text-2xl font-semibold mb-4">
-                    Dithered (Zoomed {previewScale}x)
+                    Dithered {previewScale > 1 ? `(${previewScale}x Zoom)` : '(Full View)'}
                   </h2>
-                  <div className="overflow-auto max-h-[800px] border rounded bg-gray-100 p-4">
+                  <div
+                    className="overflow-auto border border-[#212121] rounded-[8px] bg-[#111] p-4"
+                    style={{
+                      // At fit mode: no height cap — show the entire image
+                      // At zoom mode: cap at 700px so the card doesn't fill the screen
+                      maxHeight: previewScale > 1 ? '700px' : 'none',
+                    }}
+                  >
                     <canvas
                       ref={ditheredCanvasRef}
                       style={{
                         imageRendering: 'pixelated',
-                        transform: `scale(${previewScale})`,
-                        transformOrigin: 'top left',
-                        display: 'block'
+                        display: 'block',
+                        /*
+                          BUG FIX (Bug 4 + 5):
+                          previewScale === 1 → fit to container width (show full image)
+                          previewScale > 1 → actual pixel dimensions × scale (enable pan)
+
+                          If canvasSize is null (no image loaded yet), fall back to
+                          '100%' width so the canvas area doesn't look broken.
+                        */
+                        width: previewScale <= 1
+                          ? '100%'
+                          : (canvasSize ? canvasSize.width * previewScale : '100%'),
+                        height: previewScale <= 1
+                          ? 'auto'
+                          : (canvasSize ? canvasSize.height * previewScale : 'auto'),
                       }}
                     />
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Scroll to see entire preview when zoomed
+                  <p className="text-xs text-[#555] mt-2">
+                    {previewScale > 1
+                      ? 'Scroll or drag scrollbars inside the preview to pan'
+                      : 'Use the zoom slider above to inspect pixel detail'}
                   </p>
                 </div>
               </>
@@ -427,7 +544,6 @@ export default function Home() {
                   isProcessing={processingState.isProcessing}
                   onCancel={cancelProcessing}
                 />
-
                 <ExportControls
                   processedVideo={processedVideo}
                   onExport={exportVideo}
@@ -437,16 +553,22 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="mt-8 bg-green-50 border border-green-200 rounded-lg p-4">
-          <h3 className="font-semibold mb-2 text-green-800">✨ All Features Implemented</h3>
-          <p className="text-sm text-gray-700">
+        {/* ── FEATURES FOOTER ──────────────────────────────────────────
+            bg-[#0f1a0a]: very dark green-tinted panel.
+            border-[#1a3012]: dark forest green border.
+            Heading in accent green. Body text muted at #999.
+            rounded-[16px]: matches card radius spec.
+        */}
+        <div className="mt-8 bg-[#0f1a0a] border border-[#1a3012] rounded-[16px] p-4">
+          <h3 className="font-semibold mb-2 text-[#55FF00]">✨ All Features Implemented</h3>
+          <p className="text-sm text-[#999]">
             ✅ Floyd-Steinberg error diffusion dithering<br />
             ✅ 7 color palettes (Monochrome, CGA, Game Boy, etc.)<br />
             ✅ Full video processing pipeline with FFmpeg<br />
             ✅ Web Workers parallelization (up to 8 workers)<br />
-            ✅ WebGL bloom & light ray effects<br />
-            ✅ 2.5x preview zoom to see pixelation detail<br />
-            ✅ Real-time progress tracking & ETA<br />
+            ✅ WebGL bloom &amp; light ray effects<br />
+            ✅ Full-image preview at 1x, scroll-to-pan when zoomed<br />
+            ✅ Real-time progress tracking &amp; ETA<br />
             ✅ Export to After Effects-compatible MP4
           </p>
         </div>

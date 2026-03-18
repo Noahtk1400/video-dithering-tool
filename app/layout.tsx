@@ -13,7 +13,16 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-gray-50">
+      {/*
+        antialiased: Tailwind utility for -webkit-font-smoothing: antialiased.
+        This is redundant with the globals.css body rule, but harmless —
+        both set the same CSS properties.
+
+        bg-gray-50 is REMOVED: the dark dot-pattern background is now set
+        entirely in globals.css body { background-color / background-image }.
+        A single Tailwind class can't express both the color AND the gradient.
+      */}
+      <body className="antialiased">
         {children}
       </body>
     </html>

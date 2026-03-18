@@ -1,1 +1,170 @@
+/* ─────────────────────────────────────────────────────────
+   Tailwind CSS v4 base import — must stay at the very top
+   ───────────────────────────────────────────────────────── */
 @import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────
+   DESIGN TOKENS
+   All brand colors and radii live here as CSS custom properties.
+   Reference them anywhere with var(--token-name). This prevents
+   magic numbers scattered across files and makes future theme
+   changes a single-line edit.
+   ───────────────────────────────────────────────────────── */
+:root {
+  --accent:       #55FF00;                  /* primary brand green */
+  --accent-glow:  rgba(85, 255, 0, 0.35);  /* hover glow halo color */
+  --card-bg:      #1c1c1c;                  /* card surface */
+  --card-border:  #212121;                  /* hairline card border */
+  --body-bg:      #0a0a0a;                  /* page background */
+}
+
+/* ─────────────────────────────────────────────────────────
+   BODY — DOT PATTERN + FONT SMOOTHING
+   radial-gradient draws a 1px white dot at the center of each
+   22x22px cell. The rest of each cell is transparent, so the
+   dark body-bg shows through. Result: subtle dot grid.
+
+   Font smoothing: prevents text from looking heavy/blurry on
+   macOS retina displays. -webkit- prefix covers Safari/Chrome;
+   -moz-osx- covers Firefox on macOS.
+   ───────────────────────────────────────────────────────── */
+body {
+  background-color: var(--body-bg);
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.05) 1px,   /* dot: near-invisible white */
+    transparent 1px                   /* surrounding cell: transparent */
+  );
+  background-size: 22px 22px;         /* dot grid pitch */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: #f0f0f0;                      /* default text color for dark bg */
+}
+
+/* ─────────────────────────────────────────────────────────
+   HEADINGS — TIGHT LETTER SPACING
+   -0.04em subtly condenses heading glyphs, giving a modern
+   editorial feel. Applied to h1–h3 only; body copy is untouched.
+   ───────────────────────────────────────────────────────── */
+h1, h2, h3 {
+  letter-spacing: -0.04em;
+}
+
+/* ─────────────────────────────────────────────────────────
+   GLASS CARD
+   The "liquid glass" look: semi-transparent dark surface +
+   backdrop-filter blur, so the dot-pattern background shows
+   through faintly — creating a frosted glass appearance.
+
+   PERFORMANCE: only apply .glass-card to top-level card
+   containers, never to elements nested inside a card. Each
+   backdrop-filter layer requires a separate GPU compositing
+   pass. One per card is negligible; stacking them causes lag.
+   ───────────────────────────────────────────────────────── */
+.glass-card {
+  background: rgba(28, 28, 28, 0.85);      /* 85% opaque card surface */
+  backdrop-filter: blur(10px);              /* blurs what's behind the card */
+  -webkit-backdrop-filter: blur(10px);      /* Safari requires this prefix */
+  border: 1px solid rgba(33, 33, 33, 0.9); /* hairline border */
+  border-radius: 16px;                      /* per spec: 16px for cards */
+}
+
+/* ─────────────────────────────────────────────────────────
+   GREEN GLOW UTILITY
+   Add .glow-green to any button that should emit a green halo
+   when interacted with.
+
+   - transition is always present so hover-in/out animates smoothly
+   - The glow box-shadow only activates on :hover or :focus-visible
+   - :not(:disabled) ensures disabled buttons never glow
+   - Two shadow layers: inner tight halo + outer soft spread
+   ───────────────────────────────────────────────────────── */
+.glow-green {
+  transition: box-shadow 0.2s ease, filter 0.2s ease;
+}
+.glow-green:hover:not(:disabled),
+.glow-green:focus-visible:not(:disabled) {
+  box-shadow:
+    0 0 18px var(--accent-glow),        /* inner halo — tighter, brighter */
+    0 0 36px rgba(85, 255, 0, 0.12);    /* outer spread — wider, very faint */
+}
+
+/* ─────────────────────────────────────────────────────────
+   RANGE SLIDERS
+   accent-color is the CSS standard for tinting native form
+   controls. No custom track/thumb CSS needed — the browser
+   handles rendering in its native style, just recolored.
+   This is the lightest possible approach.
+   ───────────────────────────────────────────────────────── */
+input[type="range"] {
+  accent-color: var(--accent);
+}
+
+/* ─────────────────────────────────────────────────────────
+   SELECT / DROPDOWN — DARK STYLING
+   Removes native OS styling and applies a dark theme.
+
+   BUG FIX: -webkit-appearance: none must come BEFORE
+   appearance: none. Safari processes the prefixed version
+   and ignores the standard one. Without it, Safari keeps the
+   native dropdown arrow, which then overlaps the custom SVG.
+
+   SVG ENCODING: attribute values use %22 (URL-encoded ").
+   Using unencoded single quotes inside a CSS url("...") string
+   can fail in some parsers. %22 is always safe.
+   ───────────────────────────────────────────────────────── */
+select {
+  background-color: #111;
+  color: #f0f0f0;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;                    /* per spec: 8px for smaller elements */
+  padding: 8px;
+  -webkit-appearance: none;              /* MUST be first — removes Safari native arrow */
+  appearance: none;                      /* removes native arrow in standard browsers */
+  /* Custom chevron SVG — %22 = encoded double-quote, safe in url("") */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%226%22%3E%3Cpath d=%22M0 0l5 6 5-6z%22 fill=%22%23666%22/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;                   /* prevent text from running under the arrow */
+}
+select:focus {
+  outline: 1px solid var(--accent);     /* green outline replaces default blue browser ring */
+  outline-offset: 1px;
+}
+
+/* ─────────────────────────────────────────────────────────
+   FILE INPUT — DARK STYLING
+   ::file-selector-button is the standard pseudo-element for
+   the "Choose File" button inside a file input. It replaces
+   the older ::-webkit-file-upload-button and is widely
+   supported in all modern browsers (2021+).
+   ───────────────────────────────────────────────────────── */
+input[type="file"] {
+  color: #888;
+  background: #111;
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  padding: 8px;
+  width: 100%;
+}
+input[type="file"]::file-selector-button {
+  background: #2a2a2a;
+  color: #f0f0f0;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  margin-right: 8px;
+  transition: background 0.15s ease;
+}
+input[type="file"]::file-selector-button:hover {
+  background: #333;
+}
+
+/* ─────────────────────────────────────────────────────────
+   CHECKBOX
+   accent-color tints the native checkbox. No custom SVG needed.
+   ───────────────────────────────────────────────────────── */
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}

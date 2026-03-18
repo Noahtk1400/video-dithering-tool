@@ -14,7 +14,7 @@ export function ExportControls({ processedVideo, onExport }: ExportControlsProps
     if (processedVideo && videoRef.current) {
       const url = URL.createObjectURL(processedVideo)
       videoRef.current.src = url
-
+      // Revoke the object URL on cleanup to release memory
       return () => {
         URL.revokeObjectURL(url)
       }
@@ -28,11 +28,21 @@ export function ExportControls({ processedVideo, onExport }: ExportControlsProps
   const fileSizeMB = (processedVideo.size / (1024 * 1024)).toFixed(2)
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 space-y-4">
+    <div className="glass-card p-6 space-y-4">
       <h2 className="text-2xl font-semibold mb-4">Export Video</h2>
 
-      {/* Video Preview - Fixed 16:9 Aspect Ratio */}
-      <div className="relative w-full border rounded overflow-hidden bg-black" style={{ paddingTop: '56.25%' }}>
+      {/* ── VIDEO PREVIEW ────────────────────────────────────────
+          paddingTop: 56.25% = 16:9 aspect ratio container trick.
+          The absolute-positioned video fills this space.
+          bg-black: true black letterbox behind the video.
+          border border-[#212121]: edge visible against dark card.
+          overflow-hidden: clips the video to the rounded corners.
+          rounded-[8px]: per spec, 8px for smaller elements.
+      */}
+      <div
+        className="relative w-full border border-[#212121] rounded-[8px] overflow-hidden bg-black"
+        style={{ paddingTop: '56.25%' }}
+      >
         <video
           ref={videoRef}
           controls
@@ -41,22 +51,24 @@ export function ExportControls({ processedVideo, onExport }: ExportControlsProps
         />
       </div>
 
-      {/* File Info */}
-      <div className="text-sm text-gray-600">
-        <p>File Size: <span className="font-mono">{fileSizeMB} MB</span></p>
+      {/* File size — muted text, supplementary info */}
+      <div className="text-sm text-[#666]">
+        <p>File Size: <span className="font-mono text-[#999]">{fileSizeMB} MB</span></p>
       </div>
 
-      {/* Export Button */}
+      {/* ── DOWNLOAD BUTTON ──────────────────────────────────────
+          bg-[#55FF00] text-black: accent green with black text.
+          glow-green: hover glow from globals.css box-shadow rule.
+            This button is NOT inside overflow-hidden, so the glow
+            renders correctly (unlike the progress bar fill).
+          hover:brightness-110: +10% brightness on hover via CSS filter.
+          rounded-[8px]: per spec.
+      */}
       <button
         onClick={onExport}
-        className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors flex items-center justify-center gap-2"
+        className="w-full px-6 py-3 bg-[#55FF00] text-black font-semibold rounded-[8px] hover:brightness-110 glow-green flex items-center justify-center gap-2"
       >
-        <svg
-          className="w-5 h-5"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -67,7 +79,7 @@ export function ExportControls({ processedVideo, onExport }: ExportControlsProps
         Download Dithered Video
       </button>
 
-      <p className="text-xs text-gray-500 text-center">
+      <p className="text-xs text-[#555] text-center">
         Video is optimized for After Effects (H.264, yuv420p)
       </p>
     </div>
